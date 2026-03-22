@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Read;
 
+#[derive(Debug)]
 struct Packet {
     msg_type: u8,
     length: u8,
@@ -11,8 +12,12 @@ struct Packet {
 fn main() {
     println!("Opening device...");
 
-    let mut file = File::open("/tmp/device_stream")
-        .expect("Failed to open device stream");
+    let path = std::env::args()
+        .nth(1)
+        .unwrap_or("../../data/sample_stream.bin".to_string());
+
+    let mut file = File::open(path)
+        .expect("Failed to open stream");
 
     println!("Device opened. Reading data...");
 
@@ -23,16 +28,20 @@ fn main() {
         let bytes_read = file.read(&mut buffer)
             .expect("Failed to read from stream");
 
-        if bytes_read > 0 {
-            // Add new data to stream buffer
-            stream.extend_from_slice(&buffer[..bytes_read]);
+        if bytes_read == 0 {
+            break; // EOF reached
+        }
 
-            // Try to parse packets
-            while let Some(packet) = try_parse_packet(&mut stream){
-                println!("Parsed packet: {:?}", packet.msg_type);
-            }
+        // Add new data to stream buffer
+        stream.extend_from_slice(&buffer[..bytes_read]);
+
+        // Try to parse packets
+        while let Some(packet) = try_parse_packet(&mut stream) {
+            println!("Parsed packet: {:?}", packet);
         }
     }
+
+    println!("Finished reading stream.");
 }
 
 fn try_parse_packet(stream: &mut Vec<u8>) -> Option<Packet> {
@@ -43,7 +52,7 @@ fn try_parse_packet(stream: &mut Vec<u8>) -> Option<Packet> {
 
     // Find header (0xAA)
     if stream[0] != 0xAA {
-        stream.remove(0);
+        stream.remove(0); // discard byte until aligned
         return None;
     }
 
@@ -58,6 +67,19 @@ fn try_parse_packet(stream: &mut Vec<u8>) -> Option<Packet> {
 
     let data = stream[3..3 + length].to_vec();
     let checksum = stream[3 + length];
+
+    // Checksum validation
+    let mut calc_checksum = 0u8;
+    for byte in &stream[0..3 + length] {
+        calc_checksum ^= *byte;
+    }
+
+    if calc_checksum != checksum {
+        // Checksum mismatch
+        println!("Invalid checksum, dropping packet");
+        stream.remove(0); // discard byte until aligned
+        return None;
+    }
 
     // Remove parsed packet from stream
     stream.drain(0..total_length);
