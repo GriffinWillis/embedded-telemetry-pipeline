@@ -55,6 +55,8 @@ fn main() {
         }
     });
 
+    drop(tx); // Close sender in main thread so parser can detect when reader is done
+
     // =========================
     // THREAD 2: Parser
     // =========================    
